@@ -7,6 +7,7 @@
 #include <CoordTopocentric.h>
 #include <Observer.h>
 #include <SGP4.h>
+#include <Satellites.h>
 
 const int PIN_VEXT_CTRL = 3;
 const int PIN_GNSS_TX = 33;
@@ -19,6 +20,11 @@ const int PIN_TFT_SCLK = 41;
 const int PIN_TFT_SDIN = 42;
 const int SERIAL_BAUD_GNSS = 115200;
 const int FIND_LOCATION_TIMEOUT_S = 60;
+const char SYMBOL_DEGREES = 0xF8;
+const char SYMBOL_ARROW_UP = 0x1E;
+const char SYMBOL_ARROW_DOWN = 0x1F;
+const char SYMBOL_EQUALS = 0x3D;
+const double SPEED_OF_LIGHT = 299792.458; // km/s
 
 HardwareSerial serialGnss(0);
 Adafruit_ST7735 display(PIN_TFT_CS, PIN_TFT_RS, PIN_TFT_SDIN, PIN_TFT_SCLK, PIN_TFT_RES);
@@ -27,9 +33,8 @@ ESP32Time rtc;
 elapsedMillis millisSinceStart;
 
 libsgp4::Observer observer(0, 0, 0);
-libsgp4::SGP4 satellite(libsgp4::Tle("AO-07",
-                                     "1 07530U 74089B   25018.84567510 -.00000039  00000-0  46297-4 0  9990",
-                                     "2 07530 101.9918  21.6106 0012315  33.6228  35.2087 12.53685076296306"));
+Satellite satellite = iss;
+Payload *payload = satellite.getPayload();
 
 void setupExternalPower()
 {
@@ -90,9 +95,28 @@ void setupLocationAndTime()
     observer = libsgp4::Observer(gnss.location.lat(), gnss.location.lng(), gnss.altitude.kilometers());
     serialGnss.end();
     display.setCursor(0, ST7735_TFTWIDTH_80 / 2);
-    display.print("Location found and time configured!");
+    display.println("Location found and time configured!");
+    display.println();
+    display.printf("Lat: %.6f %c, Lng: %.6f %c, Alt: %i m\n", gnss.location.lat(), SYMBOL_DEGREES, gnss.location.lng(), SYMBOL_DEGREES, gnss.altitude.meters());
+    display.println();
+    display.println(rtc.getDateTime());
     delay(2000);
   }
+}
+
+unsigned long getDopplerShift(unsigned long sourceFrequency, double relativeSpeed)
+{
+  return sourceFrequency * relativeSpeed / SPEED_OF_LIGHT;
+}
+
+String formatFrequency(unsigned long frequency)
+{
+  unsigned int MHz = frequency / 100000;
+  unsigned int KHz = (frequency % 100000) / 100;
+  unsigned int daHz = frequency % 100;
+  char buffer[11];
+  snprintf(buffer, sizeof(buffer), "%03u.%03u.%02u", MHz, KHz, daHz);
+  return String(buffer);
 }
 
 void setup()
@@ -107,16 +131,21 @@ void loop()
 {
   if (millisSinceStart >= 1000)
   {
-    tm time = rtc.getTimeStruct();
-    libsgp4::Eci eci = satellite.FindPosition(libsgp4::DateTime(libsgp4::UnixEpoch + mktime(&time) * libsgp4::TicksPerSecond));
-    libsgp4::CoordTopocentric topo = observer.GetLookAngle(eci);
-
+    libsgp4::Eci satellitePosition = satellite.FindPosition(libsgp4::DateTime(libsgp4::UnixEpoch + rtc.getEpoch() * libsgp4::TicksPerSecond));
+    libsgp4::CoordTopocentric lookAngle = observer.GetLookAngle(satellitePosition);
+    libsgp4::DateTime dateTime = satellitePosition.GetDateTime();
+    char elevationChangeSymbol = lookAngle.range_rate == 0 ? SYMBOL_EQUALS : lookAngle.range_rate < 0 ? SYMBOL_ARROW_UP
+                                                                                                      : SYMBOL_ARROW_DOWN;
     display.setCursor(0, 0);
-    display.println(eci.GetDateTime().ToString().c_str());
+    display.printf("%s  %02i:%02i:%02i\n", satellite.getName().c_str(), dateTime.Hour(), dateTime.Minute(), dateTime.Second());
     display.println();
-    display.println(observer.GetLocation().ToString().c_str());
+    display.printf("Az: %05.1f  El: %04.1f %c\n", libsgp4::Util::RadiansToDegrees(lookAngle.azimuth), libsgp4::Util::RadiansToDegrees(lookAngle.elevation), elevationChangeSymbol);
     display.println();
-    display.println(topo.ToString().c_str());
+    display.printf("%s\n", formatFrequency(payload->getUplinkFrequency()).c_str());
+    display.printf("%s\n", formatFrequency(payload->getDownlinkFrequency()).c_str());
+    display.println();
+    display.printf("%s\n", formatFrequency(payload->getUplinkFrequency() + getDopplerShift(payload->getUplinkFrequency(), lookAngle.range_rate)).c_str());
+    display.printf("%s\n", formatFrequency(payload->getDownlinkFrequency() - getDopplerShift(payload->getDownlinkFrequency(), lookAngle.range_rate)).c_str());
 
     millisSinceStart = 0;
   }
