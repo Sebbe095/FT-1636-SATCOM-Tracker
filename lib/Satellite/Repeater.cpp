@@ -10,10 +10,10 @@ Repeater::Repeater(unsigned long uplinkFrequency, unsigned long downlinkFrequenc
 
 void Repeater::setUplinkFrequency(unsigned long frequency)
 {
-    uplinkFrequency = frequency;
+    uplinkFrequency = frequency; // TODO: sync downlink frequency?
 }
 
 void Repeater::setDownlinkFrequency(unsigned long frequency)
 {
-    downlinkFrequency = frequency;
+    downlinkFrequency = frequency; // TODO: sync uplink frequency?
 }

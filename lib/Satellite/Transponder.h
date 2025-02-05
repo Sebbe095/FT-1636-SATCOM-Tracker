@@ -6,8 +6,8 @@ class Transponder : public Payload
 public:
     struct FrequencyRange
     {
-        unsigned long lowerFrequency; // daHz
-        unsigned long upperFrequency; // daHz
+        unsigned long lowerFrequency;
+        unsigned long upperFrequency;
     };
 
     Transponder(FrequencyRange uplinkRange, Mode uplinkMode, FrequencyRange downlinkRange, Mode downlinkMode, bool inverting);

@@ -1,5 +1,7 @@
 #pragma once
 
+// Note: All frequencies in daHz (decahertz)
+
 class Payload
 {
 public:
