@@ -25,6 +25,7 @@ const int PIN_TFT_SCLK = 41;
 const int PIN_TFT_SDIN = 42;
 const int SERIAL_BAUD_RATE_GNSS = 115200;
 const int FIND_LOCATION_TIMEOUT_S = 60;
+const int LOOP_TIMEOUT_MS = 1500;
 const char SYMBOL_DEGREES = 0xF8;
 const char SYMBOL_ARROW_UP = 0x1E;
 const char SYMBOL_ARROW_DOWN = 0x1F;
@@ -197,10 +198,18 @@ void setup()
 
 void loop()
 {
-  if (millisSinceStart >= 1500)
+  if (millisSinceStart >= LOOP_TIMEOUT_MS)
   {
     libsgp4::Eci satellitePosition = satellite.FindPosition(libsgp4::DateTime(libsgp4::UnixEpoch + rtc.getEpoch() * libsgp4::TicksPerSecond));
     libsgp4::CoordTopocentric lookAngle = observer.GetLookAngle(satellitePosition);
+
+    if (lookAngle.elevation < 0)
+    {
+      display.setCursor(0, 0);
+      display.println("Satellite below horizon!");
+      millisSinceStart = 0;
+      return;
+    }
 
     unsigned long tunedDownlinkFrequency;
     if (!downlinkRadio.getFrequency(tunedDownlinkFrequency))
