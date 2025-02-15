@@ -1,18 +1,12 @@
 #pragma once
 
+#include <OperatingMode.h>
+
 // Note: All frequencies in daHz (decahertz)
 
 class Payload
 {
 public:
-    enum class Mode
-    {
-        USB,
-        LSB,
-        CW,
-        FM
-    };
-
     virtual unsigned long getUplinkFrequency() const
     {
         return uplinkFrequency;
@@ -27,12 +21,12 @@ public:
 
     virtual void setDownlinkFrequency(unsigned long frequency) = 0;
 
-    Mode getUplinkMode() const
+    OperatingMode getUplinkMode() const
     {
         return uplinkMode;
     };
 
-    Mode getDownlinkMode() const
+    OperatingMode getDownlinkMode() const
     {
         return downlinkMode;
     };
@@ -40,6 +34,6 @@ public:
 protected:
     unsigned long uplinkFrequency;
     unsigned long downlinkFrequency;
-    Mode uplinkMode;
-    Mode downlinkMode;
+    OperatingMode uplinkMode;
+    OperatingMode downlinkMode;
 };

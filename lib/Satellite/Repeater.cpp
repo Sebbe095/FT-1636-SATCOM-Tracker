@@ -1,6 +1,6 @@
 #include "Repeater.h"
 
-Repeater::Repeater(unsigned long uplinkFrequency, unsigned long downlinkFrequency, Mode mode)
+Repeater::Repeater(unsigned long uplinkFrequency, unsigned long downlinkFrequency, OperatingMode mode)
 {
     this->uplinkFrequency = uplinkFrequency;
     this->downlinkFrequency = downlinkFrequency;

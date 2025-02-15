@@ -10,7 +10,7 @@ public:
         unsigned long upperFrequency;
     };
 
-    Transponder(FrequencyRange uplinkRange, Mode uplinkMode, FrequencyRange downlinkRange, Mode downlinkMode, bool inverting);
+    Transponder(FrequencyRange uplinkRange, OperatingMode uplinkMode, FrequencyRange downlinkRange, OperatingMode downlinkMode, bool inverting);
 
     void setUplinkFrequency(unsigned long frequency) override;
     void setDownlinkFrequency(unsigned long frequency) override;
@@ -18,7 +18,5 @@ public:
 private:
     FrequencyRange uplinkRange;
     FrequencyRange downlinkRange;
-    Mode uplinkMode;
-    Mode downlinkMode;
     bool inverting;
 };

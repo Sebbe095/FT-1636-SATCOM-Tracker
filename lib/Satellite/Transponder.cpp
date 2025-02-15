@@ -1,8 +1,10 @@
 #include "Transponder.h"
 
-Transponder::Transponder(FrequencyRange uplinkRange, Mode uplinkMode, FrequencyRange downlinkRange, Mode downlinkMode, bool inverting)
-    : uplinkRange(uplinkRange), uplinkMode(uplinkMode), downlinkRange(downlinkRange), downlinkMode(downlinkMode), inverting(inverting)
+Transponder::Transponder(FrequencyRange uplinkRange, OperatingMode uplinkMode, FrequencyRange downlinkRange, OperatingMode downlinkMode, bool inverting)
+    : uplinkRange(uplinkRange), downlinkRange(downlinkRange), inverting(inverting)
 {
+    this->uplinkMode = uplinkMode;
+    this->downlinkMode = downlinkMode;
     uplinkFrequency = uplinkRange.lowerFrequency + (uplinkRange.upperFrequency - uplinkRange.lowerFrequency) / 2;         // Default to the center frequency
     downlinkFrequency = downlinkRange.lowerFrequency + (downlinkRange.upperFrequency - downlinkRange.lowerFrequency) / 2; // Default to the center frequency
 }

@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <vector>
+#include <OperatingMode.h>
 
 // Note: All frequencies in daHz (decahertz)
 
@@ -12,9 +13,10 @@ private:
     const unsigned long VHF_MAX = 14600000; // VHF maximum frequency
     const unsigned long UHF_MIN = 43000000; // UHF minimum frequency
     const unsigned long UHF_MAX = 44000000; // UHF maximum frequency
-    const unsigned int CAT_RATE = 38400; // FT-818 CAT baud rate (bps)
+    const unsigned int CAT_RATE = 38400;    // FT-818 CAT baud rate (bps)
     const byte CMD_READ_FREQ_MODE = 0x03;
     const byte CMD_SET_FREQ = 0x01;
+    const byte CMD_SET_OP_MODE = 0x07;
 
     HardwareSerial &port;
 
@@ -29,4 +31,5 @@ public:
     void end();
     bool getFrequency(unsigned long &frequency);
     bool setFrequency(unsigned long frequency);
+    bool setOperatingMode(OperatingMode operatingMode);
 };

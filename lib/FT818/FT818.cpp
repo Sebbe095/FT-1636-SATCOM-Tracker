@@ -103,3 +103,35 @@ bool FT818::setFrequency(unsigned long frequency)
 
     return ack.at(0) == 0;
 }
+
+bool FT818::setOperatingMode(OperatingMode operatingMode)
+{
+    byte operatingModeByte;
+    switch (operatingMode)
+    {
+    case OperatingMode::LSB:
+        operatingModeByte = 0x00;
+        break;
+    case OperatingMode::USB:
+        operatingModeByte = 0x01;
+        break;
+    case OperatingMode::FM:
+        operatingModeByte = 0x08;
+        break;
+    default:
+        return false; // Unsupported operating mode
+    }
+
+    if (!sendCommand(CMD_SET_OP_MODE, {operatingModeByte, 0x00, 0x00, 0x00}))
+    {
+        return false;
+    }
+
+    std::vector<byte> ack(1);
+    if (!readData(ack))
+    {
+        return false;
+    }
+
+    return ack.at(0) == 0;
+}
