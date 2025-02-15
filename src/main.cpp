@@ -106,9 +106,13 @@ void setupRadios()
 
   if (!error)
   {
+    uplinkRadio.setOperatingMode(payload->getUplinkMode());
     uplinkRadio.setFrequency(payload->getUplinkFrequency());
+
+    downlinkRadio.setOperatingMode(payload->getDownlinkMode());
     downlinkRadio.setFrequency(payload->getDownlinkFrequency());
     lastTunedDownlinkFrequency = payload->getDownlinkFrequency();
+
     delay(2000);
   }
   else
