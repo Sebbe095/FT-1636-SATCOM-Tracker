@@ -4,6 +4,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
 #include <elapsedMillis.h>
+#include <OneButton.h>
 #include <CoordTopocentric.h>
 #include <Observer.h>
 #include <SGP4.h>
@@ -23,6 +24,8 @@ const int PIN_TFT_RES = 39;
 const int PIN_TFT_RS = 40;
 const int PIN_TFT_SCLK = 41;
 const int PIN_TFT_SDIN = 42;
+const int PIN_BUTTON = 0;
+const int PIN_LED = 18;
 const int SERIAL_BAUD_RATE_GNSS = 115200;
 const int FIND_LOCATION_TIMEOUT_S = 60;
 const int LOOP_TIMEOUT_MS = 1500;
@@ -42,19 +45,48 @@ FT818 downlinkRadio(downlinkRadioSerial);
 Adafruit_ST7735 display(PIN_TFT_CS, PIN_TFT_RS, PIN_TFT_SDIN, PIN_TFT_SCLK, PIN_TFT_RES);
 TinyGPSPlus gnss;
 ESP32Time rtc;
+OneButton button;
 elapsedMillis millisSinceStart;
+unsigned long lastTunedDownlinkFrequency;
+long clarifierOffset;
 
 libsgp4::Observer observer(0, 0, 0);
 Satellite satellite = rs44;
 Payload *payload = satellite.getPayload();
 
-unsigned long lastTunedDownlinkFrequency;
+enum class State
+{
+  TRACKING,
+  SET_CLARIFIER
+};
+State state = State::TRACKING;
 
 void setupExternalPower()
 {
   // Enable power to peripherals
   pinMode(PIN_VEXT_CTRL, OUTPUT);
   digitalWrite(PIN_VEXT_CTRL, HIGH);
+}
+
+void setupButton()
+{
+  pinMode(PIN_LED, OUTPUT);
+  button.setup(PIN_BUTTON);
+  button.attachClick([]()
+                     {
+    switch (state)
+    {
+    case State::TRACKING:
+      display.fillScreen(ST7735_BLACK);
+      digitalWrite(PIN_LED, HIGH);
+      state = State::SET_CLARIFIER;
+      break;
+    case State::SET_CLARIFIER:
+      display.fillScreen(ST7735_BLACK);
+      digitalWrite(PIN_LED, LOW);
+      state = State::TRACKING;
+      break;
+    } });
 }
 
 void setupDisplay()
@@ -110,8 +142,12 @@ void setupRadios()
     uplinkRadio.setFrequency(payload->getUplinkFrequency());
 
     downlinkRadio.setOperatingMode(payload->getDownlinkMode());
-    downlinkRadio.setFrequency(payload->getDownlinkFrequency());
-    lastTunedDownlinkFrequency = payload->getDownlinkFrequency();
+    unsigned long initialDownlinkFrequency = payload->getDownlinkFrequency();
+    downlinkRadio.setFrequency(initialDownlinkFrequency);
+    unsigned long tunedDownlinkFrequency;
+    downlinkRadio.getFrequency(tunedDownlinkFrequency);
+    clarifierOffset = tunedDownlinkFrequency - initialDownlinkFrequency;
+    lastTunedDownlinkFrequency = tunedDownlinkFrequency;
 
     delay(2000);
   }
@@ -197,11 +233,13 @@ void setup()
   setupDisplay();
   setupRadios();
   setupLocationAndTime();
+  setupButton();
   display.fillScreen(ST7735_BLACK);
 }
 
 void loop()
 {
+  button.tick();
   if (millisSinceStart >= LOOP_TIMEOUT_MS)
   {
     libsgp4::Eci satellitePosition = satellite.FindPosition(libsgp4::DateTime(libsgp4::UnixEpoch + rtc.getEpoch() * libsgp4::TicksPerSecond));
@@ -239,7 +277,7 @@ void loop()
     {
       sourceDownlinkFrequency = payload->getDownlinkFrequency();
       observedDownlinkFrequency = sourceDownlinkFrequency - getDopplerShift(sourceDownlinkFrequency, lookAngle.range_rate);
-      if (observedDownlinkFrequency != tunedDownlinkFrequency)
+      if (observedDownlinkFrequency != tunedDownlinkFrequency - clarifierOffset)
       {
         if (!downlinkRadio.setFrequency(observedDownlinkFrequency))
         {
@@ -248,14 +286,21 @@ void loop()
           millisSinceStart = 0;
           return;
         }
-        lastTunedDownlinkFrequency = observedDownlinkFrequency;
+        lastTunedDownlinkFrequency = observedDownlinkFrequency + clarifierOffset;
       }
     }
     else
     {
-      observedDownlinkFrequency = tunedDownlinkFrequency;
-      sourceDownlinkFrequency = observedDownlinkFrequency + getDopplerShift(observedDownlinkFrequency, lookAngle.range_rate);
-      payload->setDownlinkFrequency(sourceDownlinkFrequency);
+      if (state == State::SET_CLARIFIER)
+      {
+        clarifierOffset += tunedDownlinkFrequency - lastTunedDownlinkFrequency;
+      }
+      else
+      {
+        observedDownlinkFrequency = tunedDownlinkFrequency - clarifierOffset;
+        sourceDownlinkFrequency = observedDownlinkFrequency + getDopplerShift(observedDownlinkFrequency, lookAngle.range_rate);
+        payload->setDownlinkFrequency(sourceDownlinkFrequency);
+      }
       lastTunedDownlinkFrequency = tunedDownlinkFrequency;
     }
 
@@ -270,15 +315,22 @@ void loop()
     char elevationChangeSymbol = lookAngle.range_rate == 0 ? SYMBOL_EQUALS : lookAngle.range_rate < 0 ? SYMBOL_ARROW_UP
                                                                                                       : SYMBOL_ARROW_DOWN;
     display.setCursor(0, 0);
-    display.printf("%s  %02i:%02i:%02i\n", satellite.getName().c_str(), dateTime.Hour(), dateTime.Minute(), dateTime.Second());
-    display.println();
-    display.printf("Az: %05.1f  El: %04.1f %c\n", libsgp4::Util::RadiansToDegrees(lookAngle.azimuth), libsgp4::Util::RadiansToDegrees(lookAngle.elevation), elevationChangeSymbol);
-    display.println();
-    display.printf("%s\n", formatFrequency(sourceUplinkFrequency).c_str());
-    display.printf("%s\n", formatFrequency(sourceDownlinkFrequency).c_str());
-    display.println();
-    display.printf("%s\n", formatFrequency(observedUplinkFrequency).c_str());
-    display.printf("%s\n", formatFrequency(observedDownlinkFrequency).c_str());
+    if (state == State::SET_CLARIFIER)
+    {
+      display.printf("Clarifier: %03li\n", clarifierOffset);
+    }
+    else
+    {
+      display.printf("%s  %02i:%02i:%02i\n", satellite.getName().c_str(), dateTime.Hour(), dateTime.Minute(), dateTime.Second());
+      display.println();
+      display.printf("Az: %05.1f  El: %04.1f %c\n", libsgp4::Util::RadiansToDegrees(lookAngle.azimuth), libsgp4::Util::RadiansToDegrees(lookAngle.elevation), elevationChangeSymbol);
+      display.println();
+      display.printf("%s\n", formatFrequency(sourceUplinkFrequency).c_str());
+      display.printf("%s\n", formatFrequency(sourceDownlinkFrequency).c_str());
+      display.println();
+      display.printf("%s\n", formatFrequency(observedUplinkFrequency).c_str());
+      display.printf("%s\n", formatFrequency(observedDownlinkFrequency).c_str());
+    }
 
     millisSinceStart = 0;
   }
