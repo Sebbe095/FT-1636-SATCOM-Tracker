@@ -72,21 +72,6 @@ void setupButton()
 {
   pinMode(PIN_LED, OUTPUT);
   button.setup(PIN_BUTTON);
-  button.attachClick([]()
-                     {
-    switch (state)
-    {
-    case State::TRACKING:
-      display.fillScreen(ST7735_BLACK);
-      digitalWrite(PIN_LED, HIGH);
-      state = State::SET_CLARIFIER;
-      break;
-    case State::SET_CLARIFIER:
-      display.fillScreen(ST7735_BLACK);
-      digitalWrite(PIN_LED, LOW);
-      state = State::TRACKING;
-      break;
-    } });
 }
 
 void setupDisplay()
@@ -101,6 +86,48 @@ void setupDisplay()
   // Enable backlight
   pinMode(PIN_TFT_LED_K, OUTPUT);
   digitalWrite(PIN_TFT_LED_K, HIGH);
+}
+
+struct SatelliteSelection
+{
+  int index;
+  bool selected;
+};
+
+void nextSatellite(void *satelliteSelection)
+{
+  SatelliteSelection *selection = (SatelliteSelection *)satelliteSelection;
+  selection->index = selection->index < satellites.size() - 1 ? selection->index + 1 : 0;
+  display.fillScreen(ST7735_BLACK);
+  display.setCursor(0, 0);
+  display.print(satellites.at(selection->index)->getName().c_str());
+}
+
+void selectSatellite(void *satelliteSelection)
+{
+  SatelliteSelection *selection = (SatelliteSelection *)satelliteSelection;
+  selection->selected = true;
+}
+
+void setupSatelliteSelection()
+{
+  display.fillScreen(ST7735_BLACK);
+  display.setCursor(0, 0);
+  display.setTextSize(2);
+  SatelliteSelection satelliteSelection = {0, false};
+  display.print(satellites.at(satelliteSelection.index)->getName().c_str());
+  button.attachClick(nextSatellite, &satelliteSelection);
+  button.attachLongPressStart(selectSatellite, &satelliteSelection);
+  while (!satelliteSelection.selected)
+  {
+    button.tick();
+  }
+  satellite = *satellites.at(satelliteSelection.index);
+  payload = satellite.getPayload();
+  button.reset();
+  button.attachLongPressStart(NULL, NULL);
+  button.attachClick(NULL);
+  display.setTextSize(1);
 }
 
 void setupRadios()
@@ -212,6 +239,27 @@ void setupLocationAndTime()
   }
 }
 
+void setupButtonEvent()
+{
+  button.reset();
+  button.attachClick([]()
+                     {
+    switch (state)
+    {
+    case State::TRACKING:
+      display.fillScreen(ST7735_BLACK);
+      digitalWrite(PIN_LED, HIGH);
+      state = State::SET_CLARIFIER;
+      break;
+    case State::SET_CLARIFIER:
+      display.fillScreen(ST7735_BLACK);
+      digitalWrite(PIN_LED, LOW);
+      state = State::TRACKING;
+      break;
+    } });
+  state = State::TRACKING;
+}
+
 long getDopplerShift(unsigned long sourceFrequency, double relativeSpeed)
 {
   return sourceFrequency * relativeSpeed / SPEED_OF_LIGHT;
@@ -231,9 +279,11 @@ void setup()
 {
   setupExternalPower();
   setupDisplay();
+  setupButton();
+  setupSatelliteSelection();
   setupRadios();
   setupLocationAndTime();
-  setupButton();
+  setupButtonEvent();
   display.fillScreen(ST7735_BLACK);
 }
 
@@ -291,15 +341,15 @@ void loop()
     }
     else
     {
-      if (state == State::SET_CLARIFIER)
-      {
-        clarifierOffset += tunedDownlinkFrequency - lastTunedDownlinkFrequency;
-      }
-      else
+      if (state == State::TRACKING)
       {
         observedDownlinkFrequency = tunedDownlinkFrequency - clarifierOffset;
         sourceDownlinkFrequency = observedDownlinkFrequency + getDopplerShift(observedDownlinkFrequency, lookAngle.range_rate);
         payload->setDownlinkFrequency(sourceDownlinkFrequency);
+      }
+      else if (state == State::SET_CLARIFIER)
+      {
+        clarifierOffset += tunedDownlinkFrequency - lastTunedDownlinkFrequency;
       }
       lastTunedDownlinkFrequency = tunedDownlinkFrequency;
     }
@@ -315,11 +365,7 @@ void loop()
     char elevationChangeSymbol = lookAngle.range_rate == 0 ? SYMBOL_EQUALS : lookAngle.range_rate < 0 ? SYMBOL_ARROW_UP
                                                                                                       : SYMBOL_ARROW_DOWN;
     display.setCursor(0, 0);
-    if (state == State::SET_CLARIFIER)
-    {
-      display.printf("Clarifier: %03li\n", clarifierOffset);
-    }
-    else
+    if (state == State::TRACKING)
     {
       display.printf("%s  %02i:%02i:%02i\n", satellite.getName().c_str(), dateTime.Hour(), dateTime.Minute(), dateTime.Second());
       display.println();
@@ -330,6 +376,10 @@ void loop()
       display.println();
       display.printf("%s\n", formatFrequency(observedUplinkFrequency).c_str());
       display.printf("%s\n", formatFrequency(observedDownlinkFrequency).c_str());
+    }
+    else if (state == State::SET_CLARIFIER)
+    {
+      display.printf("Clarifier: %03li\n", clarifierOffset);
     }
 
     millisSinceStart = 0;
