@@ -1,4 +1,8 @@
 #include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiMulti.h>
+#include <HTTPClient.h>
+#include <LittleFS.h>
 #include <TinyGPSPlus.h>
 #include <ESP32Time.h>
 #include <Adafruit_GFX.h>
@@ -10,6 +14,7 @@
 #include <SGP4.h>
 #include <Satellites.h>
 #include <FT818.h>
+#include <map>
 
 const int PIN_VEXT_CTRL = 3;
 const int PIN_GNSS_TX = 33;
@@ -34,6 +39,10 @@ const char SYMBOL_ARROW_UP = 0x1E;
 const char SYMBOL_ARROW_DOWN = 0x1F;
 const char SYMBOL_EQUALS = 0x3D;
 const double SPEED_OF_LIGHT = 299792.458; // km/s
+const String WIFI_FILE_PATH = "/wifi.txt";
+const String TLE_FILE_PATH = "/tle.txt";
+const String TLE_BACKUP_FILE_PATH = "/tle_backup.txt";
+const String TLE_URL = "http://www.amsat.org/tle/current/dailytle.txt";
 
 HardwareSerial gnssSerial(0);
 HardwareSerial uplinkRadioSerial(1);
@@ -42,6 +51,7 @@ HardwareSerial downlinkRadioSerial(2);
 FT818 uplinkRadio(uplinkRadioSerial);
 FT818 downlinkRadio(downlinkRadioSerial);
 
+WiFiMulti wifiMulti;
 Adafruit_ST7735 display(PIN_TFT_CS, PIN_TFT_RS, PIN_TFT_SDIN, PIN_TFT_SCLK, PIN_TFT_RES);
 TinyGPSPlus gnss;
 ESP32Time rtc;
@@ -86,6 +96,144 @@ void setupDisplay()
   // Enable backlight
   pinMode(PIN_TFT_LED_K, OUTPUT);
   digitalWrite(PIN_TFT_LED_K, HIGH);
+}
+
+void setupFileSystem()
+{
+  if (!LittleFS.begin())
+  {
+    display.println("File system error");
+    display.println();
+    display.println("Error! Stopping...");
+    while (true)
+    {
+      // Infinite loop
+    }
+  }
+
+  if (!LittleFS.exists(WIFI_FILE_PATH))
+  {
+    display.println("WiFi file not found");
+    LittleFS.end();
+    display.println();
+    display.println("Error! Stopping...");
+    while (true)
+    {
+      // Infinite loop
+    }
+  }
+
+  if (!LittleFS.exists(TLE_FILE_PATH))
+  {
+    display.println("TLE file not found");
+    LittleFS.end();
+    display.println();
+    display.println("Error! Stopping...");
+    while (true)
+    {
+      // Infinite loop
+    }
+  }
+}
+
+std::map<String, String> parseWifiCredentials(String &wifiCredentials)
+{
+  std::map<String, String> wifiNetworks;
+  String ssid;
+  String password;
+  while (!wifiCredentials.isEmpty())
+  {
+    String line = wifiCredentials.substring(0, wifiCredentials.indexOf('\n'));
+    String ssid = line.substring(0, line.indexOf(' '));
+    String password = line.substring(line.indexOf(' ') + 1);
+    wifiNetworks[ssid] = password;
+    wifiCredentials.remove(0, line.length() + 1);
+  }
+  return wifiNetworks;
+}
+
+void setupWifi()
+{
+  if (File file = LittleFS.open(WIFI_FILE_PATH))
+  {
+    String wifiCredentials = file.readString();
+    file.close();
+    for (const auto &credentials : parseWifiCredentials(wifiCredentials))
+    {
+      wifiMulti.addAP(credentials.first.c_str(), credentials.second.c_str());
+    }
+  }
+  else
+  {
+    display.println("WiFi setup error");
+    LittleFS.end();
+    display.println();
+    display.println("Error! Stopping...");
+    while (true)
+    {
+      // Infinite loop
+    }
+  }
+}
+
+void setupTle()
+{
+  if (wifiMulti.run() != WL_CONNECTED)
+  {
+    WiFi.disconnect(true, true);
+    return;
+  }
+
+  display.fillScreen(ST7735_BLACK);
+  display.setCursor(0, 0);
+  display.println("Updating TLE...");
+
+  HTTPClient http;
+  http.begin(TLE_URL);
+
+  if (http.GET() != HTTP_CODE_OK)
+  {
+    http.end();
+    WiFi.disconnect(true, true);
+    return;
+  }
+
+  if (!LittleFS.rename(TLE_FILE_PATH, TLE_BACKUP_FILE_PATH))
+  {
+    http.end();
+    WiFi.disconnect(true, true);
+    return;
+  }
+
+  bool tleUpdated = false;
+  if (File file = LittleFS.open(TLE_FILE_PATH, FILE_WRITE))
+  {
+    tleUpdated = file.print(http.getString());
+    file.close();
+  }
+
+  if (!tleUpdated && !LittleFS.rename(TLE_BACKUP_FILE_PATH, TLE_FILE_PATH))
+  {
+    http.end();
+    WiFi.disconnect(true, true);
+    display.println("TLE update and restore error!");
+    display.println();
+    display.println("Error! Stopping...");
+    while (true)
+    {
+      // Infinite loop
+    }
+  }
+
+  if (tleUpdated)
+  {
+    LittleFS.remove(TLE_BACKUP_FILE_PATH);
+    display.println("TLE updated!");
+    delay(2000);
+  }
+
+  http.end();
+  WiFi.disconnect(true, true);
 }
 
 struct SatelliteSelection
@@ -279,6 +427,9 @@ void setup()
 {
   setupExternalPower();
   setupDisplay();
+  setupFileSystem();
+  setupWifi();
+  setupTle();
   setupButton();
   setupSatelliteSelection();
   setupRadios();

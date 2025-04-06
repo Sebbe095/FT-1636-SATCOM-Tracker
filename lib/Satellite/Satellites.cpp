@@ -18,9 +18,9 @@ Satellite ao7("AO-7",
 
 Transponder mo122Transponder({14591000, 14594000}, OperatingMode::LSB, {43581000, 43584000}, OperatingMode::USB, true);
 Satellite mo122("MO-122",
-               "1 60209U 24125G   25066.38155875  .00020685  00000-0  68104-3 0  9995",
-               "2 60209  97.2929 279.2658 0021937 113.4771 246.8779 15.31282194 37517",
-               &mo122Transponder);
+                "1 60209U 24125G   25066.38155875  .00020685  00000-0  68104-3 0  9995",
+                "2 60209  97.2929 279.2658 0021937 113.4771 246.8779 15.31282194 37517",
+                &mo122Transponder);
 
 Repeater so50Repeater(14585000, 43679500, OperatingMode::FM);
 Satellite so50("SO-50",

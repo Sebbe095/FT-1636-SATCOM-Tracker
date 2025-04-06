@@ -1,0 +1,1 @@
+***REMOVE THIS LINE*** Add SSID (first) and password (second), separated by a space character, of the WiFi network. Multiple networks can be added on consecutive lines.
