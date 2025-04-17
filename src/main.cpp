@@ -12,7 +12,9 @@
 #include <CoordTopocentric.h>
 #include <Observer.h>
 #include <SGP4.h>
-#include <Satellites.h>
+#include <Satellite.h>
+#include <Repeater.h>
+#include <Transponder.h>
 #include <FT818.h>
 #include <map>
 
@@ -42,6 +44,7 @@ const double SPEED_OF_LIGHT = 299792.458; // km/s
 const String WIFI_FILE_PATH = "/wifi.txt";
 const String TLE_FILE_PATH = "/tle.txt";
 const String TLE_BACKUP_FILE_PATH = "/tle_backup.txt";
+const String SATELLITE_FILE_PATH = "/satellites.txt";
 const String TLE_URL = "http://www.amsat.org/tle/current/dailytle.txt";
 
 HardwareSerial gnssSerial(0);
@@ -61,8 +64,9 @@ unsigned long lastTunedDownlinkFrequency;
 long clarifierOffset;
 
 libsgp4::Observer observer(0, 0, 0);
-Satellite satellite = rs44;
-Payload *payload = satellite.getPayload();
+Satellite *satellite = nullptr;
+Payload *payload = nullptr;
+std::vector<Satellite *> satellites;
 
 enum class State
 {
@@ -236,6 +240,92 @@ void setupTle()
   WiFi.disconnect(true, true);
 }
 
+void setupSatellites()
+{
+  std::map<String, std::pair<String, Payload *>> nameAndPayloadBySatCat;
+  if (File file = LittleFS.open(SATELLITE_FILE_PATH))
+  {
+    while (file.available() > 0)
+    {
+      String line = file.readStringUntil('\n');
+      int start = 0;
+      int end = line.indexOf(' ');
+      std::vector<String> fields;
+      while (end != -1)
+      {
+        fields.push_back(line.substring(start, end));
+        start = end + 1;
+        end = line.indexOf(' ', start);
+      }
+      fields.push_back(line.substring(start)); // Last field
+
+      if (fields[0] == "R")
+      {
+        unsigned long uplinkFrequency = fields[1].toInt();
+        unsigned long downlinkFrequency = fields[2].toInt();
+        OperatingMode mode = StringToOperatingMode(fields[3].c_str());
+        String catalogNumber = fields[4];
+        String name = fields[5];
+        nameAndPayloadBySatCat[catalogNumber] = std::make_pair(name, new Repeater(uplinkFrequency, downlinkFrequency, mode));
+      }
+      else if (fields[0] == "T")
+      {
+        unsigned long lowerUplinkFrequency = fields[1].toInt();
+        unsigned long upperUplinkFrequency = fields[2].toInt();
+        OperatingMode uplinkMode = StringToOperatingMode(fields[3].c_str());
+        unsigned long lowerDownlinkFrequency = fields[4].toInt();
+        unsigned long upperDownlinkFrequency = fields[5].toInt();
+        OperatingMode downlinkMode = StringToOperatingMode(fields[6].c_str());
+        bool inverting = fields[7] == "1" ? true : false;
+        String catalogNumber = fields[8];
+        String name = fields[9];
+        nameAndPayloadBySatCat[catalogNumber] = std::make_pair(name, new Transponder({lowerUplinkFrequency, upperUplinkFrequency}, uplinkMode, {lowerDownlinkFrequency, upperDownlinkFrequency}, downlinkMode, inverting));
+      }
+    }
+    file.close();
+  }
+
+  std::map<String, std::pair<String, String>> tleBySatCat;
+  if (File file = LittleFS.open(TLE_FILE_PATH))
+  {
+    while (file.available() > 0)
+    {
+      String line = file.readStringUntil('\n');
+      if (!line.startsWith("1 "))
+      {
+        continue;
+      }
+      String line2 = file.readStringUntil('\n');
+      String catalogNumber = line.substring(2, 7);
+      tleBySatCat[catalogNumber] = std::make_pair(line, line2);
+    }
+    file.close();
+  }
+
+  for (const auto &item : nameAndPayloadBySatCat)
+  {
+    const String &catalogNumber = item.first;
+    const String &name = item.second.first;
+    Payload *payload = item.second.second;
+    if (tleBySatCat.find(catalogNumber) != tleBySatCat.end())
+    {
+      const String &tleLine1 = tleBySatCat[catalogNumber].first;
+      const String &tleLine2 = tleBySatCat[catalogNumber].second;
+      satellites.push_back(new Satellite(std::string(name.c_str()), std::string(tleLine1.c_str()), std::string(tleLine2.c_str()), payload));
+    }
+  }
+}
+
+String formatFrequency(unsigned long frequency)
+{
+  unsigned int MHz = frequency / 100000;
+  unsigned int KHz = (frequency % 100000) / 100;
+  unsigned int daHz = frequency % 100;
+  char buffer[11];
+  snprintf(buffer, sizeof(buffer), "%03u.%03u.%02u", MHz, KHz, daHz);
+  return String(buffer);
+}
+
 struct SatelliteSelection
 {
   int index;
@@ -246,9 +336,15 @@ void nextSatellite(void *satelliteSelection)
 {
   SatelliteSelection *selection = (SatelliteSelection *)satelliteSelection;
   selection->index = selection->index < satellites.size() - 1 ? selection->index + 1 : 0;
+  Satellite *satellite = satellites.at(selection->index);
+  Payload *payload = satellite->getPayload();
   display.fillScreen(ST7735_BLACK);
   display.setCursor(0, 0);
-  display.print(satellites.at(selection->index)->getName().c_str());
+  display.setTextSize(2);
+  display.println(satellite->getName().c_str());
+  display.println();
+  display.printf("%s %s\n", formatFrequency(payload->getUplinkFrequency()), OperatingModeToString(payload->getUplinkMode()));
+  display.printf("%s %s\n", formatFrequency(payload->getDownlinkFrequency()), OperatingModeToString(payload->getDownlinkMode()));
 }
 
 void selectSatellite(void *satelliteSelection)
@@ -259,22 +355,19 @@ void selectSatellite(void *satelliteSelection)
 
 void setupSatelliteSelection()
 {
-  display.fillScreen(ST7735_BLACK);
-  display.setCursor(0, 0);
-  display.setTextSize(2);
   SatelliteSelection satelliteSelection = {0, false};
-  display.print(satellites.at(satelliteSelection.index)->getName().c_str());
   button.attachClick(nextSatellite, &satelliteSelection);
   button.attachLongPressStart(selectSatellite, &satelliteSelection);
+  nextSatellite(&satelliteSelection); // Show first satellite
   while (!satelliteSelection.selected)
   {
     button.tick();
   }
-  satellite = *satellites.at(satelliteSelection.index);
-  payload = satellite.getPayload();
+  satellite = satellites.at(satelliteSelection.index);
+  payload = satellite->getPayload();
   button.reset();
   button.attachLongPressStart(NULL, NULL);
-  button.attachClick(NULL);
+  button.attachClick(NULL, NULL);
   display.setTextSize(1);
 }
 
@@ -413,16 +506,6 @@ long getDopplerShift(unsigned long sourceFrequency, double relativeSpeed)
   return sourceFrequency * relativeSpeed / SPEED_OF_LIGHT;
 }
 
-String formatFrequency(unsigned long frequency)
-{
-  unsigned int MHz = frequency / 100000;
-  unsigned int KHz = (frequency % 100000) / 100;
-  unsigned int daHz = frequency % 100;
-  char buffer[11];
-  snprintf(buffer, sizeof(buffer), "%03u.%03u.%02u", MHz, KHz, daHz);
-  return String(buffer);
-}
-
 void setup()
 {
   setupExternalPower();
@@ -430,6 +513,7 @@ void setup()
   setupFileSystem();
   setupWifi();
   setupTle();
+  setupSatellites();
   setupButton();
   setupSatelliteSelection();
   setupRadios();
@@ -443,7 +527,7 @@ void loop()
   button.tick();
   if (millisSinceStart >= LOOP_TIMEOUT_MS)
   {
-    libsgp4::Eci satellitePosition = satellite.FindPosition(libsgp4::DateTime(libsgp4::UnixEpoch + rtc.getEpoch() * libsgp4::TicksPerSecond));
+    libsgp4::Eci satellitePosition = satellite->FindPosition(libsgp4::DateTime(libsgp4::UnixEpoch + rtc.getEpoch() * libsgp4::TicksPerSecond));
     libsgp4::CoordTopocentric lookAngle = observer.GetLookAngle(satellitePosition);
 
     if (lookAngle.elevation < 0)
@@ -518,7 +602,7 @@ void loop()
     display.setCursor(0, 0);
     if (state == State::TRACKING)
     {
-      display.printf("%s  %02i:%02i:%02i\n", satellite.getName().c_str(), dateTime.Hour(), dateTime.Minute(), dateTime.Second());
+      display.printf("%s  %02i:%02i:%02i\n", satellite->getName().c_str(), dateTime.Hour(), dateTime.Minute(), dateTime.Second());
       display.println();
       display.printf("Az: %05.1f  El: %04.1f %c\n", libsgp4::Util::RadiansToDegrees(lookAngle.azimuth), libsgp4::Util::RadiansToDegrees(lookAngle.elevation), elevationChangeSymbol);
       display.println();
