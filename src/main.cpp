@@ -343,8 +343,8 @@ void nextSatellite(void *satelliteSelection)
   display.setTextSize(2);
   display.println(satellite->getName().c_str());
   display.println();
-  display.printf("%s %s\n", formatFrequency(payload->getUplinkFrequency()), OperatingModeToString(payload->getUplinkMode()));
-  display.printf("%s %s\n", formatFrequency(payload->getDownlinkFrequency()), OperatingModeToString(payload->getDownlinkMode()));
+  display.printf("%s %s\n", formatFrequency(payload->getUplinkFrequency()), OperatingModeToString(payload->getUplinkMode()).c_str());
+  display.printf("%s %s\n", formatFrequency(payload->getDownlinkFrequency()), OperatingModeToString(payload->getDownlinkMode()).c_str());
 }
 
 void selectSatellite(void *satelliteSelection)
@@ -606,11 +606,11 @@ void loop()
       display.println();
       display.printf("Az: %05.1f  El: %04.1f %c\n", libsgp4::Util::RadiansToDegrees(lookAngle.azimuth), libsgp4::Util::RadiansToDegrees(lookAngle.elevation), elevationChangeSymbol);
       display.println();
-      display.printf("%s\n", formatFrequency(sourceUplinkFrequency).c_str());
-      display.printf("%s\n", formatFrequency(sourceDownlinkFrequency).c_str());
+      display.printf("%s\n", formatFrequency(sourceUplinkFrequency));
+      display.printf("%s\n", formatFrequency(sourceDownlinkFrequency));
       display.println();
-      display.printf("%s\n", formatFrequency(observedUplinkFrequency).c_str());
-      display.printf("%s\n", formatFrequency(observedDownlinkFrequency).c_str());
+      display.printf("%s\n", formatFrequency(observedUplinkFrequency));
+      display.printf("%s\n", formatFrequency(observedDownlinkFrequency));
     }
     else if (state == State::SET_CLARIFIER)
     {

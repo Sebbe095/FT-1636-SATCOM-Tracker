@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 enum class OperatingMode
 {
     LSB,
@@ -8,7 +10,7 @@ enum class OperatingMode
     OTHER // Unsupported modes
 };
 
-inline const char *OperatingModeToString(OperatingMode mode)
+inline const std::string OperatingModeToString(OperatingMode mode)
 {
     switch (mode)
     {
@@ -25,7 +27,7 @@ inline const char *OperatingModeToString(OperatingMode mode)
     }
 }
 
-inline OperatingMode StringToOperatingMode(const char *mode)
+inline const OperatingMode StringToOperatingMode(std::string mode)
 {
     if (mode == "FM")
     {
