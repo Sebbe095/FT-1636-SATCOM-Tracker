@@ -262,11 +262,21 @@ void setupSatellites()
       if (fields[0] == "R")
       {
         unsigned long uplinkFrequency = fields[1].toInt();
-        unsigned long downlinkFrequency = fields[2].toInt();
-        OperatingMode mode = StringToOperatingMode(fields[3].c_str());
-        String catalogNumber = fields[4];
-        String name = fields[5];
-        nameAndPayloadBySatCat[catalogNumber] = std::make_pair(name, new Repeater(uplinkFrequency, downlinkFrequency, mode));
+        int uplinkCtcssTone = fields[2].toInt();
+        unsigned long downlinkFrequency = fields[3].toInt();
+        OperatingMode mode = StringToOperatingMode(fields[4].c_str());
+        String catalogNumber = fields[5];
+        String name = fields[6];
+        Repeater *repeater = nullptr;
+        if (uplinkCtcssTone != 0)
+        {
+          repeater = new Repeater(uplinkFrequency, downlinkFrequency, mode, static_cast<CtcssTone>(uplinkCtcssTone));
+        }
+        else
+        {
+          repeater = new Repeater(uplinkFrequency, downlinkFrequency, mode);
+        }
+        nameAndPayloadBySatCat[catalogNumber] = std::make_pair(name, repeater);
       }
       else if (fields[0] == "T")
       {
@@ -279,7 +289,8 @@ void setupSatellites()
         bool inverting = fields[7] == "1" ? true : false;
         String catalogNumber = fields[8];
         String name = fields[9];
-        nameAndPayloadBySatCat[catalogNumber] = std::make_pair(name, new Transponder({lowerUplinkFrequency, upperUplinkFrequency}, uplinkMode, {lowerDownlinkFrequency, upperDownlinkFrequency}, downlinkMode, inverting));
+        nameAndPayloadBySatCat[catalogNumber] = std::make_pair(name, new Transponder({lowerUplinkFrequency, upperUplinkFrequency}, uplinkMode,
+                                                                                     {lowerDownlinkFrequency, upperDownlinkFrequency}, downlinkMode, inverting));
       }
     }
     file.close();
@@ -408,6 +419,19 @@ void setupRadios()
   {
     uplinkRadio.setOperatingMode(payload->getUplinkMode());
     uplinkRadio.setFrequency(payload->getUplinkFrequency());
+    if (payload->getUplinkMode() == OperatingMode::FM)
+    {
+      Repeater *repeater = static_cast<Repeater *>(payload);
+      if (repeater->getUplinkCtcssTone() != CtcssTone::NONE)
+      {
+        uplinkRadio.setCtcssTone(repeater->getUplinkCtcssTone());
+        uplinkRadio.setCtcssDcsMode(FT818::CtcssDcsMode::ENCODER_ON);
+      }
+      else
+      {
+        uplinkRadio.setCtcssDcsMode(FT818::CtcssDcsMode::OFF);
+      }
+    }
 
     downlinkRadio.setOperatingMode(payload->getDownlinkMode());
     unsigned long initialDownlinkFrequency = payload->getDownlinkFrequency();

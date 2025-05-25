@@ -31,6 +31,16 @@ bool FT818::readData(std::vector<byte> &buffer)
     return port.readBytes(buffer.data(), buffer.size()) == buffer.size();
 }
 
+bool FT818::readAck()
+{
+    std::vector<byte> ack(1);
+    if (!readData(ack))
+    {
+        return false;
+    }
+    return ack.at(0) == 0;
+}
+
 bool FT818::isFrequencyValid(unsigned long frequency)
 {
     return (frequency >= VHF_MIN && frequency <= VHF_MAX) || (frequency >= UHF_MIN && frequency <= UHF_MAX);
@@ -95,13 +105,7 @@ bool FT818::setFrequency(unsigned long frequency)
         return false;
     }
 
-    std::vector<byte> ack(1);
-    if (!readData(ack))
-    {
-        return false;
-    }
-
-    return ack.at(0) == 0;
+    return readAck();
 }
 
 bool FT818::setOperatingMode(OperatingMode operatingMode)
@@ -127,11 +131,57 @@ bool FT818::setOperatingMode(OperatingMode operatingMode)
         return false;
     }
 
-    std::vector<byte> ack(1);
-    if (!readData(ack))
+    return readAck();
+}
+
+bool FT818::setCtcssDcsMode(CtcssDcsMode mode)
+{
+    byte modeByte;
+    switch (mode)
+    {
+    case CtcssDcsMode::DCS_ON:
+        modeByte = 0x0A;
+        break;
+    case CtcssDcsMode::CTCSS_ON:
+        modeByte = 0x2A;
+        break;
+    case CtcssDcsMode::ENCODER_ON:
+        modeByte = 0x4A;
+        break;
+    case CtcssDcsMode::OFF:
+        modeByte = 0x8A;
+        break;
+    default:
+        return false; // Unsupported CTCSS/DCS mode
+    }
+
+    if (!sendCommand(CMD_SET_CTCSS_DCS_MODE, {modeByte, 0x00, 0x00, 0x00}))
     {
         return false;
     }
 
-    return ack.at(0) == 0;
+    return readAck();
+}
+
+bool FT818::setCtcssTone(CtcssTone tone)
+{
+    int toneValue = static_cast<int>(tone);
+    if (!isValidCtcssTone(toneValue))
+    {
+        return false;
+    }
+
+    std::array<byte, 4> toneBytes = {0x00, 0x00, 0x00, 0x00};
+    for (int i = 1; i >= 0; --i)
+    {
+        toneBytes.at(i) = (toneValue / 10 % 10) << 4 | toneValue % 10;
+        toneValue /= 100;
+    }
+
+    if (!sendCommand(CMD_SET_CTCSS_TONE, toneBytes))
+    {
+        return false;
+    }
+
+    return readAck();
 }
