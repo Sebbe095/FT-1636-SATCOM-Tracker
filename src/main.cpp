@@ -391,11 +391,12 @@ void setupRadios()
   display.setCursor(0, 0);
 
   bool error = false;
-  unsigned long frequency = 0;
-  if (uplinkRadio.getFrequency(frequency))
+  unsigned long uplinkFrequency;
+  OperatingMode uplinkMode;
+  if (uplinkRadio.getFrequencyAndMode(uplinkFrequency, uplinkMode))
   {
     display.println("Uplink: OK!");
-    display.println(frequency);
+    display.println(formatFrequency(uplinkFrequency));
   }
   else
   {
@@ -404,10 +405,12 @@ void setupRadios()
   }
 
   display.println();
-  if (downlinkRadio.getFrequency(frequency))
+  unsigned long downlinkFrequency;
+  OperatingMode downlinkMode;
+  if (downlinkRadio.getFrequencyAndMode(downlinkFrequency, downlinkMode))
   {
     display.println("Downlink: OK!");
-    display.println(frequency);
+    display.println(formatFrequency(downlinkFrequency));
   }
   else
   {
@@ -417,9 +420,17 @@ void setupRadios()
 
   if (!error)
   {
-    uplinkRadio.setOperatingMode(payload->getUplinkMode());
-    uplinkRadio.setFrequency(payload->getUplinkFrequency());
-    if (payload->getUplinkMode() == OperatingMode::FM)
+    OperatingMode payloadUplinkMode = payload->getUplinkMode();
+    unsigned long payloadUplinkFrequency = payload->getUplinkFrequency();
+    if (uplinkMode != payloadUplinkMode)
+    {
+      uplinkRadio.setOperatingMode(payloadUplinkMode);
+    }
+    if (uplinkFrequency != payloadUplinkFrequency)
+    {
+      uplinkRadio.setFrequency(payloadUplinkFrequency);
+    }
+    if (payloadUplinkMode == OperatingMode::FM)
     {
       Repeater *repeater = static_cast<Repeater *>(payload);
       if (repeater->getUplinkCtcssTone() != CtcssTone::NONE)
@@ -433,12 +444,19 @@ void setupRadios()
       }
     }
 
-    downlinkRadio.setOperatingMode(payload->getDownlinkMode());
-    unsigned long initialDownlinkFrequency = payload->getDownlinkFrequency();
-    downlinkRadio.setFrequency(initialDownlinkFrequency);
-    unsigned long tunedDownlinkFrequency;
-    downlinkRadio.getFrequency(tunedDownlinkFrequency);
-    clarifierOffset = tunedDownlinkFrequency - initialDownlinkFrequency;
+    OperatingMode payloadDownlinkMode = payload->getDownlinkMode();
+    unsigned long payloadDownlinkFrequency = payload->getDownlinkFrequency();
+    if (downlinkMode != payloadDownlinkMode)
+    {
+      downlinkRadio.setOperatingMode(payloadDownlinkMode);
+    }
+    if (downlinkFrequency != payloadDownlinkFrequency)
+    {
+      downlinkRadio.setFrequency(payloadDownlinkFrequency);
+    }
+    unsigned long tunedDownlinkFrequency = 0;
+    downlinkRadio.getFrequencyAndMode(tunedDownlinkFrequency, downlinkMode);
+    clarifierOffset = tunedDownlinkFrequency - payloadDownlinkFrequency;
     lastTunedDownlinkFrequency = tunedDownlinkFrequency;
 
     delay(2000);
@@ -562,8 +580,9 @@ void loop()
       return;
     }
 
+    OperatingMode mode;
     unsigned long tunedDownlinkFrequency;
-    if (!downlinkRadio.getFrequency(tunedDownlinkFrequency))
+    if (!downlinkRadio.getFrequencyAndMode(tunedDownlinkFrequency, mode))
     {
       display.setCursor(0, 0);
       display.println("Downlink get freq error!");
@@ -572,7 +591,7 @@ void loop()
     }
 
     unsigned long tunedUplinkFrequency;
-    if (!uplinkRadio.getFrequency(tunedUplinkFrequency))
+    if (!uplinkRadio.getFrequencyAndMode(tunedUplinkFrequency, mode))
     {
       display.setCursor(0, 0);
       display.println("Uplink get freq error!");

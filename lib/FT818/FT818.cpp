@@ -56,7 +56,7 @@ void FT818::end()
     port.end();
 }
 
-bool FT818::getFrequency(unsigned long &frequency)
+bool FT818::getFrequencyAndMode(unsigned long &frequency, OperatingMode &operatingMode)
 {
     if (!sendCommand(CMD_READ_FREQ_MODE))
     {
@@ -82,6 +82,22 @@ bool FT818::getFrequency(unsigned long &frequency)
     }
 
     frequency = freq;
+
+    byte operatingModeByte = buffer.at(4);
+    switch (operatingModeByte)
+    {
+    case 0x00:
+        operatingMode = OperatingMode::LSB;
+        break;
+    case 0x01:
+        operatingMode = OperatingMode::USB;
+        break;
+    case 0x08:
+        operatingMode = OperatingMode::FM;
+        break;
+    default:
+        operatingMode = OperatingMode::OTHER;
+    }
 
     return true;
 }

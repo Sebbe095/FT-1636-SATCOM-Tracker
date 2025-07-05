@@ -43,7 +43,7 @@ public:
 
     void begin(int rxPin, int txPin);
     void end();
-    bool getFrequency(unsigned long &frequency);
+    bool getFrequencyAndMode(unsigned long &frequency, OperatingMode &operatingMode);
     bool setFrequency(unsigned long frequency);
     bool setOperatingMode(OperatingMode operatingMode);
     bool setCtcssDcsMode(CtcssDcsMode mode);
