@@ -1,6 +1,6 @@
 #pragma once
 
-#include <SGP4.h>
+#include <libsgp4/SGP4.h>
 #include <Payload.h>
 
 class Satellite : public libsgp4::SGP4

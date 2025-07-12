@@ -9,9 +9,9 @@
 #include <Adafruit_ST7735.h>
 #include <elapsedMillis.h>
 #include <OneButton.h>
-#include <CoordTopocentric.h>
-#include <Observer.h>
-#include <SGP4.h>
+#include <libsgp4/CoordTopocentric.h>
+#include <libsgp4/Observer.h>
+#include <libsgp4/SGP4.h>
 #include <Satellite.h>
 #include <Repeater.h>
 #include <Transponder.h>
