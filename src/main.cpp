@@ -454,10 +454,7 @@ void setupRadios()
     {
       downlinkRadio.setFrequency(payloadDownlinkFrequency);
     }
-    unsigned long tunedDownlinkFrequency = 0;
-    downlinkRadio.getFrequencyAndMode(tunedDownlinkFrequency, downlinkMode);
-    clarifierOffset = tunedDownlinkFrequency - payloadDownlinkFrequency;
-    lastTunedDownlinkFrequency = tunedDownlinkFrequency;
+    lastTunedDownlinkFrequency = payloadDownlinkFrequency;
 
     delay(2000);
   }
@@ -607,14 +604,15 @@ void loop()
       observedDownlinkFrequency = sourceDownlinkFrequency - getDopplerShift(sourceDownlinkFrequency, lookAngle.range_rate);
       if (observedDownlinkFrequency != tunedDownlinkFrequency - clarifierOffset)
       {
-        if (!downlinkRadio.setFrequency(observedDownlinkFrequency))
+        unsigned long newTunedDownlinkFrequency = observedDownlinkFrequency + clarifierOffset;
+        if (!downlinkRadio.setFrequency(newTunedDownlinkFrequency))
         {
           display.setCursor(0, 0);
           display.println("Downlink set freq error!");
           millisSinceStart = 0;
           return;
         }
-        lastTunedDownlinkFrequency = observedDownlinkFrequency + clarifierOffset;
+        lastTunedDownlinkFrequency = newTunedDownlinkFrequency;
       }
     }
     else
@@ -653,7 +651,7 @@ void loop()
       display.printf("%s\n", formatFrequency(sourceDownlinkFrequency));
       display.println();
       display.printf("%s\n", formatFrequency(observedUplinkFrequency));
-      display.printf("%s\n", formatFrequency(observedDownlinkFrequency));
+      display.printf("%s  %03li\n", formatFrequency(observedDownlinkFrequency), clarifierOffset);
     }
     else if (state == State::SET_CLARIFIER)
     {
