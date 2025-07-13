@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  * 
- * Modifications Copyright 2025 Sebbe Vandenborre
+ * Modified by Sebbe Vandenborre (2025)
  */
 
 #include <passpredict/PassPredict.h>
