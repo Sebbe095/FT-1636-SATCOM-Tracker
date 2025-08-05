@@ -12,6 +12,7 @@
 #include <libsgp4/CoordTopocentric.h>
 #include <libsgp4/Observer.h>
 #include <libsgp4/SGP4.h>
+#include <passpredict/PassPredict.h>
 #include <Satellite.h>
 #include <Repeater.h>
 #include <Transponder.h>
@@ -64,9 +65,19 @@ unsigned long lastTunedDownlinkFrequency;
 long clarifierOffset;
 
 libsgp4::Observer observer(0, 0, 0);
+
+struct Pass
+{
+  Satellite *satellite;
+  PassDetails details;
+};
+
+Pass *pass = nullptr;
 Satellite *satellite = nullptr;
 Payload *payload = nullptr;
-std::vector<Satellite *> satellites;
+
+std::list<Satellite> satellites;
+std::list<Pass> passes;
 
 enum class State
 {
@@ -322,7 +333,7 @@ void setupSatellites()
     {
       const String &tleLine1 = tleBySatCat[catalogNumber].first;
       const String &tleLine2 = tleBySatCat[catalogNumber].second;
-      satellites.push_back(new Satellite(std::string(name.c_str()), std::string(tleLine1.c_str()), std::string(tleLine2.c_str()), payload));
+      satellites.push_back(Satellite(std::string(name.c_str()), std::string(tleLine1.c_str()), std::string(tleLine2.c_str()), payload));
     }
   }
 }
@@ -335,51 +346,6 @@ String formatFrequency(unsigned long frequency)
   char buffer[11];
   snprintf(buffer, sizeof(buffer), "%03u.%03u.%02u", MHz, KHz, daHz);
   return String(buffer);
-}
-
-struct SatelliteSelection
-{
-  int index;
-  bool selected;
-};
-
-void nextSatellite(void *satelliteSelection)
-{
-  SatelliteSelection *selection = (SatelliteSelection *)satelliteSelection;
-  selection->index = selection->index < satellites.size() - 1 ? selection->index + 1 : 0;
-  Satellite *satellite = satellites.at(selection->index);
-  Payload *payload = satellite->getPayload();
-  display.fillScreen(ST7735_BLACK);
-  display.setCursor(0, 0);
-  display.setTextSize(2);
-  display.println(satellite->getName().c_str());
-  display.println();
-  display.printf("%s %s\n", formatFrequency(payload->getUplinkFrequency()), OperatingModeToString(payload->getUplinkMode()).c_str());
-  display.printf("%s %s\n", formatFrequency(payload->getDownlinkFrequency()), OperatingModeToString(payload->getDownlinkMode()).c_str());
-}
-
-void selectSatellite(void *satelliteSelection)
-{
-  SatelliteSelection *selection = (SatelliteSelection *)satelliteSelection;
-  selection->selected = true;
-}
-
-void setupSatelliteSelection()
-{
-  SatelliteSelection satelliteSelection = {0, false};
-  button.attachClick(nextSatellite, &satelliteSelection);
-  button.attachLongPressStart(selectSatellite, &satelliteSelection);
-  nextSatellite(&satelliteSelection); // Show first satellite
-  while (!satelliteSelection.selected)
-  {
-    button.tick();
-  }
-  satellite = satellites.at(satelliteSelection.index);
-  payload = satellite->getPayload();
-  button.reset();
-  button.attachLongPressStart(NULL, NULL);
-  button.attachClick(NULL, NULL);
-  display.setTextSize(1);
 }
 
 void setupRadios()
@@ -519,6 +485,113 @@ void setupLocationAndTime()
   }
 }
 
+libsgp4::DateTime getCurrentDateTime()
+{
+  return libsgp4::DateTime(libsgp4::UnixEpoch + rtc.getEpoch() * libsgp4::TicksPerSecond);
+}
+
+void setupPassPrediction()
+{
+  display.fillScreen(ST7735_BLACK);
+  display.setCursor(0, 0);
+  display.println("Calculating passes...");
+
+  libsgp4::CoordGeodetic location = observer.GetLocation();
+  libsgp4::DateTime startTime = getCurrentDateTime();
+  libsgp4::DateTime endTime = startTime.AddHours(6);
+  for (auto &satellite : satellites)
+  {
+    std::list<PassDetails> passList = GeneratePassList(location, satellite, startTime, endTime, 60);
+    for (auto &pass : passList)
+    {
+      passes.push_back({&satellite, pass});
+    }
+  }
+
+  if (passes.empty())
+  {
+    display.println("No passes found! Stopping...");
+    while (true)
+    {
+      // Infinite loop
+    }
+  }
+
+  passes.sort([](const Pass &first, const Pass &second)
+                       { return first.details.aos < second.details.aos; });
+}
+
+void printPassDetails(const Pass &pass)
+{
+  display.fillScreen(ST7735_BLACK);
+  display.setCursor(0, 0);
+  display.printf("%s\n", pass.satellite->getName().c_str());
+  libsgp4::DateTime aos = pass.details.aos;
+  libsgp4::DateTime los = pass.details.los;
+  display.printf("AOS: %02i/%02i %02i:%02i:%02i\n", aos.Day(), aos.Month(), aos.Hour(), aos.Minute(), aos.Second());
+  display.printf("LOS: %02i/%02i %02i:%02i:%02i\n", los.Day(), los.Month(), los.Hour(), los.Minute(), los.Second());
+  display.printf("Max El: %04.1f %c\n", libsgp4::Util::RadiansToDegrees(pass.details.max_elevation), SYMBOL_DEGREES);
+}
+
+void nextPass(void *it)
+{
+  const auto iterator = static_cast<std::list<Pass>::iterator*>(it);
+  ++(*iterator);
+  if (*iterator == passes.end())
+  {
+    *iterator = passes.begin();
+  }
+  printPassDetails(**iterator);
+}
+
+void previousPass(void *it)
+{
+  const auto iterator = static_cast<std::list<Pass>::iterator*>(it);
+  if (*iterator == passes.begin())
+  {
+    *iterator = passes.end();
+  }
+  --(*iterator);
+  printPassDetails(**iterator);
+}
+
+void selectPass(void *it)
+{
+  const auto iterator = static_cast<std::list<Pass>::iterator*>(it);
+  pass = &**iterator;
+  satellite = pass->satellite;
+  payload = satellite->getPayload();
+}
+
+void setupPassSelection()
+{
+  auto it = passes.begin();
+  printPassDetails(*it);
+  button.attachClick(nextPass, &it);
+  button.attachDoubleClick(previousPass, &it);
+  button.attachLongPressStart(selectPass, &it);
+
+  while (pass == nullptr)
+  {
+    button.tick();
+  }
+
+  libsgp4::DateTime dateTime = getCurrentDateTime();
+  while (dateTime < pass->details.aos)
+  {
+    display.setCursor(0, 0);
+    libsgp4::TimeSpan timeSpan = pass->details.aos - dateTime;
+    display.printf("%s in %s\n", pass->satellite->getName().c_str(), timeSpan.ToString().c_str());
+    delay(1000);
+    dateTime = getCurrentDateTime();
+  }
+
+  button.reset();
+  button.attachLongPressStart(NULL, NULL);
+  button.attachDoubleClick(NULL, NULL);
+  button.attachClick(NULL, NULL);
+}
+
 void setupButtonEvent()
 {
   button.reset();
@@ -553,10 +626,11 @@ void setup()
   setupWifi();
   setupTle();
   setupSatellites();
-  setupButton();
-  setupSatelliteSelection();
-  setupRadios();
   setupLocationAndTime();
+  setupPassPrediction();
+  setupButton();
+  setupPassSelection();
+  setupRadios();
   setupButtonEvent();
   display.fillScreen(ST7735_BLACK);
 }
@@ -566,7 +640,7 @@ void loop()
   button.tick();
   if (millisSinceStart >= LOOP_TIMEOUT_MS)
   {
-    libsgp4::Eci satellitePosition = satellite->FindPosition(libsgp4::DateTime(libsgp4::UnixEpoch + rtc.getEpoch() * libsgp4::TicksPerSecond));
+    libsgp4::Eci satellitePosition = satellite->FindPosition(getCurrentDateTime());
     libsgp4::CoordTopocentric lookAngle = observer.GetLookAngle(satellitePosition);
 
     if (lookAngle.elevation < 0)
